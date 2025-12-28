@@ -1,0 +1,41 @@
+# Create the file
+nano .gitignore
+```
+
+**Paste this in:**
+```
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+.DS_Store?
+
+# Logs
+*.log
+
+# Testing
+.pytest_cache/
+
+# Config files with secrets (add later if needed)
+config.yaml
+.env
