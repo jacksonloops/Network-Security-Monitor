@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from netsec.scanner import resolve_target, parse_ports, scan_port, scan_ports
+from scanner import resolve_target, parse_ports, scan_port, scan_ports
 
 def main() -> None:
     # Testing resolve_target

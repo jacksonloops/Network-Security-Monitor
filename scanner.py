@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
 import socket
+from datetime import datetime
 import sys
+import time
 from dataclasses import dataclass
 from typing import Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import time
+from telemetry import make_event, log_event
+import uuid
+
 
 @dataclass(frozen=True)
 class PortScanResult:
+        target: str
+        host: Optional[str]
         port: int
         is_open: bool
+        latency_ms: Optional[float]
         error: Optional[str] = None
 
 def resolve_target(target: str) -> Tuple[Optional[str], str]:
@@ -78,32 +85,120 @@ def parse_ports(spec: str) -> list[int]:
                         
         return sorted(ports)
 
-def scan_port(ip: str, port: int, timeout: float = 0.5) -> PortScanResult:
-        try:
-                # Create socket
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                        sock.settimeout(timeout)
-                        res = sock.connect_ex((ip, port))
-                        # if we connect, return and show we connected
-                        if res == 0:
-                                return PortScanResult(port=port, is_open = True, error = None)
-                        # connection failed
-                        else:
-                                return PortScanResult(port = port, is_open = False, error = "closed")
-        # Connectoin timed out
-        except socket.timeout:
-                return PortScanResult(port = port, is_open = False, error = "timeout")
-        # Error occured
-        except OSError as e:
-                return PortScanResult(port=port, is_open = False, error = str(e))
-# Multi port scanner with Threads for concurrent scanning. uses scan_port.
-def scan_ports(ip: str, ports: list[int], timeout: float = 0.5, max_workers: int=300) -> list[PortScanResult]:
-        res = []
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = [executor.submit(scan_port, ip, p, timeout) for p in ports]
-                for future in as_completed(futures):
-                        result = future.result()
-                        res.append(result)
-        return sorted(res, key=lambda r: r.port)
+def scan_port(ip: str, port: int, target: str, host: Optional[str], timeout: float = 0.5) -> PortScanResult:
+    try:
+        start = time.perf_counter()
+        
+        # Create socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(timeout)
+            result = sock.connect_ex((ip, port))
+            end = time.perf_counter()
+            
+            latency = round((end - start) * 1000, 2)  # Convert to ms
+            
+            # Port is open
+            if result == 0:
+
+                return PortScanResult(
+                    port=port, 
+                    is_open=True, 
+                    error=None, 
+                    target=target, 
+                    host=host, 
+                    latency_ms=latency
+                )
+            
+            # Port is closed
+            else:
+                
+                return PortScanResult(
+                    port=port, 
+                    is_open=False, 
+                    error="closed",
+                    target=target,
+                    host=host,
+                    latency_ms=latency
+                )
+    
+    # Connection timed out
+    except socket.timeout:
+        end = time.perf_counter()
+        latency = round((end - start) * 1000, 2)
+        
+        return PortScanResult(
+            port=port, 
+            is_open=False, 
+            error="timeout",
+            target=target,
+            host=host,
+            latency_ms=latency
+        )
+    
+    # Error occurred
+    except OSError as e:
+        end = time.perf_counter()
+        latency = round((end - start) * 1000, 2)
+        
+        return PortScanResult(
+            port=port, 
+            is_open=False, 
+            error=str(e),
+            target=target,
+            host=host,
+            latency_ms=latency
+        )
+
+# Telemetry wrapper for multi-port scans
+def tel_scan_port(ip: str, port: int, run_id: str, target: str, host: Optional[str], timeout: float = 0.5)-> PortScanResult:
+    """Wrapper that scans a port and logs the port_scanned event"""
+    # Call scan_port with single=False so it doesn't log events internally
+    result = scan_port(ip, port, target, host, timeout=timeout)
+    
+    # Log the port_scanned event
+    log_event(make_event('port_scanned', 
+                        run_id=run_id, 
+                        ip=ip, 
+                        input=result.target, 
+                        host=result.host,
+                        port=result.port,
+                        is_open=result.is_open, 
+                        latency_ms=result.latency_ms, 
+                        error=result.error))
+    
+    return result
+
+# Multi port scanner with Threads for concurrent scanning
+def scan_ports(target: str, ports: list[int], timeout: float = 0.5, max_workers: int=300) -> list[PortScanResult]:
+    """Scan multiple ports with threading"""
+    res = []
+    input_target = target
+    # Resolve target
+    host_or_ip = resolve_target(target)
+    if host_or_ip[0] == None:
+        host = None
+        ip = host_or_ip[1]
+    elif host_or_ip[0] != None:
+        ip = host_or_ip[1]
+        host = host_or_ip[0]
+    
+    # Generate single run_id for this scan session
+    run_id = str(uuid.uuid4())
+    
+    # Log scan start
+    log_event(make_event('scan_started', run_id=run_id, ip=ip, input=input_target, host=host, ports_total=len(ports)))
+    start = time.perf_counter()
+    # Scan all ports concurrently using tel_scan_port
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(tel_scan_port, ip, p, run_id, input_target, host, timeout=timeout) for p in ports]
+        for future in as_completed(futures):
+            result = future.result()
+            res.append(result)
+    
+    # Log scan end
+    end = time.perf_counter()
+    open_count = sum(1 for r in res if r.is_open)
+    log_event(make_event('scan_ended', run_id=run_id, ip=ip, input=input_target, host=host, ports_total=len(ports), open_count=open_count, closed_count=len(ports) - open_count, duration_ms=round((end - start) * 1000, 2)))
+    return sorted(res, key=lambda r: r.port)
                         
                 
