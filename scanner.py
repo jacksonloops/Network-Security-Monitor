@@ -3,10 +3,11 @@ import socket
 from datetime import datetime
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from telemetry import make_event, log_event
+from detection import DetectionEngine
 import uuid
 
 
@@ -69,7 +70,7 @@ def parse_ports(spec: str) -> list[int]:
                         right = int(right)
                         if left > right:
                                 raise ValueError("Invalid port range.")
-                        if (left < 0 or left > 65535) or (right < 0 or right > 65535):
+                        if (left < 1 or left > 65535) or (right < 1 or right > 65535):
                                 raise ValueError("Invalid port value.")
                         # Append ports if all checks pass
                         ports.update(range(left, right+1))
@@ -79,13 +80,13 @@ def parse_ports(spec: str) -> list[int]:
                         if not t.isdigit():
                                 raise ValueError("Non integer found.")
                         port = int(t)
-                        if port < 0 or port > 65535:
+                        if port < 1 or port > 65535:
                                 raise ValueError("Invalid port value.")
                         ports.add(port)
                         
         return sorted(ports)
 
-def scan_port(ip: str, port: int, target: str, host: Optional[str], timeout: float = 0.5) -> PortScanResult:
+def scan_port(ip: str, port: int, target: Optional[str], host: Optional[str], timeout: float = 0.5) -> PortScanResult:
     try:
         start = time.perf_counter()
         
@@ -153,8 +154,8 @@ def scan_port(ip: str, port: int, target: str, host: Optional[str], timeout: flo
 def tel_scan_port(ip: str, port: int, run_id: str, target: str, host: Optional[str], timeout: float = 0.5)-> PortScanResult:
     """Wrapper that scans a port and logs the port_scanned event"""
     # Call scan_port with single=False so it doesn't log events internally
+
     result = scan_port(ip, port, target, host, timeout=timeout)
-    
     # Log the port_scanned event
     log_event(make_event('port_scanned', 
                         run_id=run_id, 
@@ -165,7 +166,7 @@ def tel_scan_port(ip: str, port: int, run_id: str, target: str, host: Optional[s
                         is_open=result.is_open, 
                         latency_ms=result.latency_ms, 
                         error=result.error))
-    
+
     return result
 
 # Multi port scanner with Threads for concurrent scanning
@@ -188,13 +189,26 @@ def scan_ports(target: str, ports: list[int], timeout: float = 0.5, max_workers:
     # Log scan start
     log_event(make_event('scan_started', run_id=run_id, ip=ip, input=input_target, host=host, ports_total=len(ports)))
     start = time.perf_counter()
+
+    # Start alert Detection engine
+    engine = DetectionEngine(run_id=run_id,target=input_target)
+
     # Scan all ports concurrently using tel_scan_port
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(tel_scan_port, ip, p, run_id, input_target, host, timeout=timeout) for p in ports]
         for future in as_completed(futures):
             result = future.result()
+            alerts = engine.process_result(result)
+            if len(alerts) != 0:
+                        for alert in alerts:
+                                log_event((asdict(alert)))
             res.append(result)
-    
+
+    final_alerts = engine.finalize()
+    if len(final_alerts) != 0:
+        for alert in final_alerts:
+                log_event((asdict(alert)))
+
     # Log scan end
     end = time.perf_counter()
     open_count = sum(1 for r in res if r.is_open)

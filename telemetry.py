@@ -4,11 +4,24 @@ import json
 import atexit
 import os
 import sys
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Optional, Literal
+
+@dataclass(frozen=True)
+class AlertEvent:
+        run_id: str
+        rule_id: str
+        severity: Literal["low", "medium", "high"]
+        target: str
+        port: int
+        message: str
+        evidence: str
+        timestamp: str 
+        event_type: str = field(default="alert", init=False)
 
 def make_event(event_name: str, **extra) -> dict:
     return {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "event": event_name,
         **extra
     }
