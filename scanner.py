@@ -1,44 +1,29 @@
 #!/usr/bin/env python3
 import socket
-from datetime import datetime
-import sys
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict
 from typing import Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from telemetry import make_event, log_event
 from detection import DetectionEngine
 import uuid
-
-
-@dataclass(frozen=True)
-class PortScanResult:
-        target: str
-        host: Optional[str]
-        port: int
-        is_open: bool
-        latency_ms: Optional[float]
-        error: Optional[str] = None
+from models import PortScanResult
 
 def resolve_target(target: str) -> Tuple[Optional[str], str]:
-        #normalize target str
         target = target.strip()
-        if target == "":
+        if not target:
                 raise ValueError("Empty target.")
         # Inital check for 0.0.0.0 invalid ip
         if target == "0.0.0.0":
                 raise ValueError("Invalid host IP.")
-        # Checking if valid ip, if so return No domain name and ip. if invalid try host name DNS res
         try:
                 _ = socket.inet_aton(target)
                 return None, target
         except OSError:
-                # get ip from domain name
                 try:
                         ip = socket.gethostbyname(target)
                         hostname_or_none = target
                         return hostname_or_none, ip
-                # halt if domain is invalid
                 except socket.gaierror as e:
                         raise ValueError("DNS lookup failed.")
 
@@ -153,7 +138,6 @@ def scan_port(ip: str, port: int, target: Optional[str], host: Optional[str], ti
 # Telemetry wrapper for multi-port scans
 def tel_scan_port(ip: str, port: int, run_id: str, target: str, host: Optional[str], timeout: float = 0.5)-> PortScanResult:
     """Wrapper that scans a port and logs the port_scanned event"""
-    # Call scan_port with single=False so it doesn't log events internally
 
     result = scan_port(ip, port, target, host, timeout=timeout)
     # Log the port_scanned event
@@ -170,18 +154,12 @@ def tel_scan_port(ip: str, port: int, run_id: str, target: str, host: Optional[s
     return result
 
 # Multi port scanner with Threads for concurrent scanning
-def scan_ports(target: str, ports: list[int], timeout: float = 0.5, max_workers: int=300) -> list[PortScanResult]:
+def scan_ports(target: str, ports: list[int], timeout: float = 0.5, max_workers: int=100) -> list[PortScanResult]:
     """Scan multiple ports with threading"""
     res = []
     input_target = target
     # Resolve target
-    host_or_ip = resolve_target(target)
-    if host_or_ip[0] == None:
-        host = None
-        ip = host_or_ip[1]
-    elif host_or_ip[0] != None:
-        ip = host_or_ip[1]
-        host = host_or_ip[0]
+    host, ip = resolve_target(target)
     
     # Generate single run_id for this scan session
     run_id = str(uuid.uuid4())
@@ -199,7 +177,7 @@ def scan_ports(target: str, ports: list[int], timeout: float = 0.5, max_workers:
         for future in as_completed(futures):
             result = future.result()
             alerts = engine.process_result(result)
-            if len(alerts) != 0:
+            if alerts:
                         for alert in alerts:
                                 log_event((asdict(alert)))
             res.append(result)

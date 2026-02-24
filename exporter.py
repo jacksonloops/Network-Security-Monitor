@@ -5,11 +5,11 @@ import os
 import time
 import random
 
-max_checkpoint = 200
+MAX_LINES_PER_BATCH = 200
 headers = {'X-API-Key': 'default_secret'}
-poll_empty_s = 1
-poll_incomplete_s = 0.25
-fail_cooldown_s = 10
+POLL_EMPTY_S = 1
+POLL_INCOMPLETE_S = 0.25
+FAIL_COOLDOWN_S = 10
 
 class Exporter:
     def __init__(self, url):
@@ -38,12 +38,12 @@ class Exporter:
         batch = []
         curr_checkpoint = self.load_checkpoint()
 
-        with open('telemetry.jsonl', 'r') as f:
+        with open('/spool/ready', 'r') as f:
             f.seek(curr_checkpoint) # Jump to where we left off
             lines_read = 0
 
             # get new batch
-            while lines_read < max_checkpoint:
+            while lines_read < MAX_LINES_PER_BATCH:
                 line = f.readline()
                 if line == "":
                     status = 'batch_empty'
@@ -154,13 +154,13 @@ class Exporter:
                 # Sleep based on what status we recieve from exporter or if use halts stop execution
                 res = self.exporter()
                 if res[1] == 'batch_empty':
-                    time.sleep(poll_empty_s)
+                    time.sleep(POLL_EMPTY_S)
                     continue
                 elif res[1] == 'batch_incomplete':
-                    time.sleep(poll_incomplete_s)
+                    time.sleep(POLL_INCOMPLETE_S)
                     continue
                 elif res[1] == 'send_failed':
-                    time.sleep(fail_cooldown_s)
+                    time.sleep(FAIL_COOLDOWN_S)
                     continue
                 elif res[1] == 'send_success':
                     time.sleep(0.1)

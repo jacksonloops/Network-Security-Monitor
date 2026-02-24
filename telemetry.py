@@ -4,20 +4,21 @@ import json
 import atexit
 import os
 import sys
+import shutil
 from dataclasses import dataclass, field
 from typing import Optional, Literal
 
 @dataclass(frozen=True)
 class AlertEvent:
-        run_id: str
-        rule_id: str
-        severity: Literal["low", "medium", "high"]
-        target: str
-        port: int
-        message: str
-        evidence: str
-        timestamp: str 
-        event_type: str = field(default="alert", init=False)
+    run_id: str
+    rule_id: str
+    severity: Literal["low", "medium", "high"]
+    target: str
+    port: int
+    message: str
+    evidence: str
+    timestamp: str 
+    event_type: str = field(default="alert", init=False)
 
 def make_event(event_name: str, **extra) -> dict:
     return {
@@ -44,7 +45,7 @@ class TelemetryLogger:
             try:
                 self._fh.write(line)
                 self._fh.flush()
-                os.fsync(self._fh.fileno())  # remove if your assignment doesn't require fsync
+                os.fsync(self._fh.fileno())
             except Exception as e:
                 self._disabled = True
                 try:
@@ -59,15 +60,79 @@ class TelemetryLogger:
                     self._fh.close()
             except Exception:
                 pass
+    
+    def get_size(self) -> int:
+        """Get current file size"""
+        try:
+            return os.path.getsize(self.filepath)
+        except Exception:
+            return 0
 
 _logger: Optional[TelemetryLogger] = None
+_logger_lock = Lock()
 
-def get_logger(filepath: str = "telemetry.jsonl") -> TelemetryLogger:
+def get_file_path() -> str:
+    date = datetime.now().strftime("%d-%m-%Y")
+    seq = 1
+    
+    # Ensure directories exist
+    os.makedirs('spool', exist_ok=True)
+    os.makedirs('spool/ready', exist_ok=True)
+    
+    # Find next available sequence number - check BOTH directories
+    while (os.path.exists(f'spool/{date}_{seq}.jsonl') or 
+           os.path.exists(f'spool/ready/{date}_{seq}.jsonl')):
+        seq += 1
+    
+    file_path = f'spool/{date}_{seq}.jsonl'
+    
+    # Create empty file
+    with open(file_path, 'w') as f:
+        f.write('')
+    
+    return file_path
+
+def rotate_logger() -> None:
+    """Move current log file to ready directory and create new logger"""
     global _logger
+    
     if _logger is None:
-        _logger = TelemetryLogger(filepath)
+        return
+    
+    old_filepath = _logger.filepath
+    
+    # Close the logger first
+    _logger.close()
+    
+    # Move file to ready directory if it exists
+    if os.path.exists(old_filepath):
+        filename = os.path.basename(old_filepath)
+        ready_path = f'spool/ready/{filename}'
+        shutil.move(old_filepath, ready_path)
+    
+    # Reset logger AFTER moving the file
+    _logger = None
+
+def get_logger() -> TelemetryLogger:
+    global _logger
+    
+    if _logger is None:
+        with _logger_lock:
+            # Double-check after acquiring lock
+            if _logger is None:
+                filepath = get_file_path()
+                _logger = TelemetryLogger(filepath)
+    
     return _logger
 
 def log_event(event: dict) -> None:
-    get_logger().log_event(event)
+    logger = get_logger()
+    logger.log_event(event)
+    
+    # Check if we need to rotate after logging
+    if logger.get_size() > 1_000_000:
+        with _logger_lock:
+            # Double-check the logger hasn't been rotated by another thread
+            if _logger is not None and _logger.get_size() > 1_000_000:
+                rotate_logger()
 

@@ -77,29 +77,67 @@ class IngestHandler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps(error).encode())
                     return
                 
-                # Process the data
+                # Inside the loop for validating lines
+                rejected = 0
+                for i in range(len(data['lines']) - 1, -1, -1):
+                    line = data['lines'][i]
+                    is_valid = False
+                    try:
+                        parsed = json.loads(line)
+                        if isinstance(parsed, dict):
+                            # Optionally check for required keys here, e.g.:
+                            required_keys = ['timestamp', 'event', 'run_id', 'ip']
+                            if all(key in parsed for key in required_keys):
+                                is_valid = True
+                        else:
+                            is_valid = False  # Not a JSON object (e.g., array or primitive)
+                    except json.JSONDecodeError:
+                        is_valid = False  # Not valid JSON
+                    
+                    if not is_valid:
+                        rejected += 1
+                        del data['lines'][i]# Remove invalid lines (iterate backwards to avoid index issues)
+            
                 print(f"Agent ID: {data['agent_id']}")
                 print(f"Batch ID: {data['batch_id']}")
                 print(f"Lines received: {len(data['lines'])}")
                 
                 # Parse and print each JSONL line
-                file_name = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                f = open(f'cloud_store/ingested_{file_name}.jsonl', "a+", encoding="utf-8")
-
-                for i, line in enumerate(data['lines']):
-                    f.write(line.rstrip("\n") + "\n")
-                        
-
+                directory_name = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                file_name = f"{data['agent_id']}.jsonl"
+                augmentation = {'agent_id': data['agent_id'],
+                                'batch_id': data['batch_id'],
+                                'ingested_time': datetime.now(timezone.utc).strftime("%H:%M:%S"),
+                                'ingest_date': datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                                }
+                os.makedirs(f'cloud_store/{directory_name}', exist_ok=True)
+                if os.path.exists(f'cloud_store/{directory_name}/{file_name}'):
+                    # File exists: read it
+                    with open(f'cloud_store/{directory_name}/{file_name}', 'a+', encoding='utf-8') as f:
+                        for i, line in enumerate(data['lines']):
+                            parsed = json.loads(line)
+                            parsed.update(augmentation)
+                            f.write(json.dumps(parsed) + "\n")
+                else:
+                    # File doesn't exist: create and write
+                    with open(f'cloud_store/{directory_name}/{file_name}', 'w', encoding='utf-8') as f:
+                        for i, line in enumerate(data['lines']):
+                            parsed = json.loads(line)
+                            parsed.update(augmentation)
+                            f.write(json.dumps(parsed) + "\n")    
                 
                 # Send success response
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
                 response = {
-                    'status': 'success',
-                    'message': 'Data ingested',
-                    'lines_processed': len(data['lines'])
+                    "status": "success",
+                    "accepted": len(data['lines']),
+                    "rejected": rejected,
+                    "batch_id": data['batch_id'],
+                    "agent_id": data['agent_id']
                 }
+
                 self.wfile.write(json.dumps(response).encode())
                 
             except json.JSONDecodeError:

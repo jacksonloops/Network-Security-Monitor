@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import uuid
 from models import PortScanResult
 from telemetry import AlertEvent
 from datetime import datetime, timezone
