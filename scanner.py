@@ -26,7 +26,7 @@ def resolve_target(target: str) -> Tuple[Optional[str], str]:
                         return hostname_or_none, ip
                 except socket.gaierror as e:
                         raise ValueError("DNS lookup failed.")
-
+# saved for later if user wants to define specific ports to scan
 def parse_ports(spec: str) -> list[int]:
         
         # Normalize ports str
@@ -71,7 +71,7 @@ def parse_ports(spec: str) -> list[int]:
                         
         return sorted(ports)
 
-def scan_port(ip: str, port: int, target: Optional[str], host: Optional[str], timeout: float = 0.5) -> PortScanResult:
+def scan_port(ip: str, port: int, target: Optional[str], host: Optional[str], timeout: float = 0.2) -> PortScanResult:
     try:
         start = time.perf_counter()
         
@@ -136,7 +136,7 @@ def scan_port(ip: str, port: int, target: Optional[str], host: Optional[str], ti
         )
 
 # Telemetry wrapper for multi-port scans
-def tel_scan_port(ip: str, port: int, run_id: str, target: str, host: Optional[str], timeout: float = 0.5)-> PortScanResult:
+def tel_scan_port(ip: str, port: int, run_id: str, target: str, host: Optional[str], timeout: float = 0.2)-> PortScanResult:
     """Wrapper that scans a port and logs the port_scanned event"""
 
     result = scan_port(ip, port, target, host, timeout=timeout)
@@ -154,43 +154,140 @@ def tel_scan_port(ip: str, port: int, run_id: str, target: str, host: Optional[s
     return result
 
 # Multi port scanner with Threads for concurrent scanning
-def scan_ports(target: str, ports: list[int], timeout: float = 0.5, max_workers: int=100) -> list[PortScanResult]:
-    """Scan multiple ports with threading"""
-    res = []
+def scan_ports(
+    target: str,
+    ports: list[int],
+    timeout: float = 0.2,
+    max_workers: int = 100
+) -> list[PortScanResult]:
+    """Scan multiple ports with threading and telemetry logging."""
+
+    results: list[PortScanResult] = []
     input_target = target
-    # Resolve target
     host, ip = resolve_target(target)
-    
-    # Generate single run_id for this scan session
+
     run_id = str(uuid.uuid4())
-    
-    # Log scan start
-    log_event(make_event('scan_started', run_id=run_id, ip=ip, input=input_target, host=host, ports_total=len(ports)))
     start = time.perf_counter()
 
-    # Start alert Detection engine
-    engine = DetectionEngine(run_id=run_id,target=input_target)
+    log_event(
+        make_event(
+            "scan_started",
+            run_id=run_id,
+            ip=ip,
+            input=input_target,
+            host=host,
+            ports_total=len(ports),
+        )
+    )
 
-    # Scan all ports concurrently using tel_scan_port
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(tel_scan_port, ip, p, run_id, input_target, host, timeout=timeout) for p in ports]
+    engine = DetectionEngine(run_id=run_id, target=input_target)
+    interrupted = False
+    executor = ThreadPoolExecutor(max_workers=max_workers)
+
+    try:
+        futures = [
+            executor.submit(
+                tel_scan_port,
+                ip,
+                port,
+                run_id,
+                input_target,
+                host,
+                timeout,
+            )
+            for port in ports
+        ]
+
         for future in as_completed(futures):
             result = future.result()
+            results.append(result)
+
             alerts = engine.process_result(result)
             if alerts:
-                        for alert in alerts:
-                                log_event((asdict(alert)))
-            res.append(result)
+                for alert in alerts:
+                    log_event(asdict(alert))
+                    print(f"[!] ALERT: {alert.alert_type}")
 
-    final_alerts = engine.finalize()
-    if len(final_alerts) != 0:
+    except KeyboardInterrupt:
+        interrupted = True
+        print("\n[+] Interrupt received. Stopping scan...")
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise
+
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+        final_alerts = engine.finalize()
         for alert in final_alerts:
-                log_event((asdict(alert)))
+            log_event(asdict(alert))
 
-    # Log scan end
-    end = time.perf_counter()
-    open_count = sum(1 for r in res if r.is_open)
-    log_event(make_event('scan_ended', run_id=run_id, ip=ip, input=input_target, host=host, ports_total=len(ports), open_count=open_count, closed_count=len(ports) - open_count, duration_ms=round((end - start) * 1000, 2)))
-    return sorted(res, key=lambda r: r.port)
+        end = time.perf_counter()
+        open_count = sum(1 for r in results if r.is_open)
+
+        log_event(
+            make_event(
+                "scan_ended",
+                run_id=run_id,
+                ip=ip,
+                input=input_target,
+                host=host,
+                ports_total=len(ports),
+                open_count=open_count,
+                closed_count=len(results) - open_count,
+                duration_ms=round((end - start) * 1000, 2),
+                interrupted=interrupted,
+            )
+        )
+
+    return sorted(results, key=lambda r: r.port)
+
+def scan_ports_no_log(
+    target: str,
+    ports: list[int],
+    timeout: float = 0.2,
+    max_workers: int = 100
+) -> list[PortScanResult]:
+    """Scan multiple ports with threading and detection, without telemetry logging."""
+
+    results: list[PortScanResult] = []
+    input_target = target
+    host, ip = resolve_target(target)
+
+    run_id = str(uuid.uuid4())
+    engine = DetectionEngine(run_id=run_id, target=input_target)
+
+    executor = ThreadPoolExecutor(max_workers=max_workers)
+
+    try:
+        futures = [
+            executor.submit(
+                scan_port,
+                ip,
+                port,
+                input_target,
+                host,
+                timeout,
+            )
+            for port in ports
+        ]
+
+        for future in as_completed(futures):
+            result = future.result()
+            results.append(result)
+
+            alerts = engine.process_result(result)
+            if alerts:
+                for alert in alerts:
+                    print(f"[!] ALERT: {alert.alert_type}")
+
+    except KeyboardInterrupt:
+        print("\n[+] Interrupt received. Stopping scan...")
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise
+
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+    return sorted(results, key=lambda r: r.port)
                         
                 

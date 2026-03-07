@@ -1,5 +1,0 @@
-{"timestamp": "2026-01-22T00:06:25.535739Z", "event": "scan_ended", "run_id": "2d1d43c1-6430-4843-8267-d01e798ffd53", "ip": "127.0.0.1", "input": "127.0.0.1", "host": null, "ports_total": 11, "open_count": 0, "closed_count": 11, "duration_ms": 15.84}
-{"timestamp": "2026-01-22T00:06:25.539770Z", "event": "scan_started", "run_id": "9126518c-9bcd-4097-b755-5ea5289f21f3", "ip": "127.0.0.1", "input": "127.0.0.1", "host": null, "ports_total": 1}
-{"timestamp": "2026-01-22T00:06:25.544595Z", "event": "port_scanned", "run_id": "9126518c-9bcd-4097-b755-5ea5289f21f3", "ip": "127.0.0.1", "input": "127.0.0.1", "host": null, "port": 65355, "is_open": false, "latency_ms": 0.22, "error": "closed"}
-{"timestamp": "2026-01-22T00:06:25.546981Z", "event": "scan_ended", "run_id": "9126518c-9bcd-4097-b755-5ea5289f21f3", "ip": "127.0.0.1", "input": "127.0.0.1", "host": null, "ports_total": 1, "open_count": 0, "closed_count": 1, "duration_ms": 3.04}
-{"timestamp": "2026-01-22T00:06:25.548787Z", "event": "scan_started", "run_id": "2e7807c8-cd5c-47a7-bbdd-424272688e89", "ip": "127.0.0.1", "input": "127.0.0.1", "host": null, "ports_total": 12}
