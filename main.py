@@ -2,34 +2,47 @@
 from scanner import resolve_target, parse_ports, scan_port, scan_ports
 
 def main() -> None:
+    # Get scan type from user
+    print("Choose type of scan:")
+    scan_type = input("1. Quick scan\n2. 1000 most common ports\n3. Scan all ports\n")
+    scan_type.strip()
 
-    ip = '127.0.0.1'
+    while scan_type != '1' and scan_type != '2' and scan_type != '3':
+        print("Incorrect option, please select again:")
+        scan_type = input("1. Quick scan\n2. 1000 most common ports\n3. Scan all ports\n\n")
+        scan_type.strip()
 
-    """ Testing parse_ports in scanner.py """
+    # Get logging or no logging option from user
+    print("\nNow select logging choice:")
+    log_choice = input("1. Scan without logging \n2. Scan with logging\n")
+    log_choice.strip()
 
-    tests = ["hello", "20", "20-30", "30-20", "-1", "65536", "65355", "65344-65355",
-             "1-hello", "0-1",
-             "1--", "1,,", "1-2, 3-2",  "1-2,,2-4", "7990-8005", "5432", "22"]
-    i = 0
-    for strs in tests:
-        i+=1
-        print("test: ", i,",", strs.strip())
-        try:
-            ports = parse_ports(strs)
-        except ValueError as e:
-            print(f"Error occured: {e}")
-            continue
-        
-        print("Ports found: ", ports)
-
-        """ Testing resolve_target, scan_port, and scan_ports as scan_ports utilizes the other two funcs """
-
-        res = scan_ports(ip, ports)
-        open_ports = [r.port for r in res if r.is_open]
-        closed_ports = len(ports) - len(open_ports)
-        print("Scanned", len(ports), "ports against", ip,".")
-        print("Open:", open_ports)
-        print("Closed:", closed_ports)    
-
+    while log_choice != '1' and log_choice != '2':
+        print("Incorrect option, please select again:")
+        log_choice = input("1. Scan without logging \n2. Scan with logging\n")
+    
+    # Quick Scan
+    if scan_type == '1':
+        if log_choice == '1':
+            # quick scan with no logging
+            print("Quick scan with no logging.")
+        else:
+            print("Quick scan with logging.")
+    # Most common 1000k ports scan
+    elif scan_type == '2':
+        if log_choice == '1':
+            # quick scan with no logging
+            print("1000 port scan with no logging")
+        else:
+            print("1000 port scan with logging")
+            
+    # Full Scan
+    elif scan_type == '3':
+        if log_choice == '1':
+            # quick scan with no logging
+            print("Full port scan with no logging")
+        else:
+            print("Full port scan with logging")
+    
 if __name__ == "__main__":
     main()
