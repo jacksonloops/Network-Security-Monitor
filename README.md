@@ -1,72 +1,52 @@
-# Network Scanner
+# Network Telemetry & Detection Pipeline
 
-A Python-based TCP port scanner designed for lightweight network reconnaissance and telemetry-driven analysis.
+A security monitoring mini-pipeline built in Python — combining concurrent TCP scanning, structured telemetry, rule-based alerting, and a batched log export system into a cohesive end-to-end workflow.
 
-This project explores how a scanning engine, structured telemetry logging, and a simple detection pipeline can be composed into a mini security monitoring workflow.
-
----
-
-## 🔧 Core Capabilities
-
-- Concurrent TCP port scanning
-- Domain name resolution (DNS → IPv4)
-- Flexible port specifications (single values & ranges)
-- Structured JSONL telemetry logging
-- Basic rule-based detection engine
-- Spool-based log rotation model
-- Mock cloud ingestion pipeline
+Designed to mirror the architecture patterns found in real SIEM/EDR tooling: events flow from a scanner through a detection engine, get written to a managed spool, and are forwarded to an ingestion backend with retry logic and checkpointing.
 
 ---
 
-## 🏗 Architecture Overview
+## What This Demonstrates
 
-The scanner is intentionally designed as a small pipeline rather than a single script:
-
-
-scanner → telemetry logger → spool/ready → exporter → ingest server
-
-
-**Components**
-
-- **Scanner Engine** 
-  Performs concurrent TCP connect scans and records latency / state.
-
-- **Telemetry Logger** 
-  Writes structured JSONL events with rotation into a spool directory.
-
-- **Detection Engine** 
-  Evaluates scan results for security-relevant conditions (e.g., exposed admin ports).
-
-- **Exporter** 
-  Batches completed telemetry files and forwards them to a mock ingestion endpoint.
-
-- **Cloud Ingest Stub** 
-  Simulates a remote telemetry receiver with validation and failure scenarios.
+- **Threat detection logic** — rule-based engine flags exposed remote admin ports (SSH/RDP/VNC), exposed database ports, and excessive open port counts with structured severity levels
+- **Structured telemetry** — all scan activity emitted as JSONL events with run IDs, timestamps, and enriched metadata — queryable and pipeline-friendly
+- **Log rotation & spooling** — size-based log rotation moves completed files to a `spool/ready` directory, decoupling collection from export
+- **Reliable export with backoff** — checkpoint-based exporter batches telemetry and forwards it with exponential backoff + jitter on 429/5xx, preventing data loss on transient failures
+- **Mock ingest server** — simulates a real ingestion endpoint with API key auth, field validation, and randomized failure injection (overload/server error scenarios)
+- **Concurrent scanning** — thread pool-based TCP connect scanner with latency measurement and DNS resolution
 
 ---
 
-## 🚀 Running the Project
-
-Start the mock ingest server:
-
-```bash
-python cloud_ingest_stub.py
-
-Run the scanner:
-
-python main.py
-
-(Optional) Run exporter loop:
-
-python exporter.py
-
+## Pipeline Architecture
 ```
-📄 Telemetry Model
+scanner → detection engine → telemetry logger → spool/ready → exporter → ingest server
+```
 
-Events are written as JSON Lines (JSONL) for stream-friendly processing.
+| Component | File | Role |
+|---|---|---|
+| Scanner | `scanner.py` | Concurrent TCP connect scans with latency tracking |
+| Detection Engine | `detection.py` | Rule-based alerting on scan results |
+| Telemetry Logger | `telemetry.py` | Thread-safe JSONL writer with size-based rotation |
+| Exporter | `exporter.py` | Checkpoint-tracked batch forwarder with retry logic |
+| Ingest Server | `cloud_ingest_stub.py` | Mock receiver with auth, validation, failure simulation |
+| Entry Point | `main.py` | Interactive CLI for scan mode and target selection |
 
-Example event:
+---
 
+## Detection Rules
+
+| Rule ID | Severity | Trigger |
+|---|---|---|
+| `OPEN_REMOTE_ADMIN_PORT` | High | SSH (22), RDP (3389), or VNC (5900) found open |
+| `OPEN_REMOTE_DATABASE_PORT` | High | MySQL (3306), Postgres (5432), or Redis (6379) found open |
+| `EXCESSIVE_OPEN_PORTS` | Medium | Open port count exceeds configurable threshold |
+
+---
+
+## Telemetry Event Schema
+
+Events are written as JSON Lines for stream-compatible processing:
+```json
 {
   "timestamp": "2026-02-23T21:18:10Z",
   "event": "port_scanned",
@@ -76,40 +56,41 @@ Example event:
   "is_open": true,
   "latency_ms": 1.24
 }
-🎯 Design Goals
+```
 
-This project focuses on:
+Event types: `scan_started`, `port_scanned`, `alert`, `scan_ended`
 
-Deterministic behavior
+---
 
-Minimal dependencies
+## Quickstart
+```bash
+# Start the mock ingest server
+python cloud_ingest_stub.py
 
-Readable data flow
+# Run the scanner (interactive CLI)
+python main.py
 
-Explicit state transitions
+# Run the exporter loop
+python exporter.py
+```
 
-Simple but realistic security tooling patterns
+---
 
-It is not intended as a full-featured scanner, but as an exploration of telemetry and pipeline-oriented design.
+## Planned Improvements
 
-⚠️ Legal & Ethical Use
+- CLI flag interface (argparse)
+- UDP / SYN scan variants
+- Additional detection rules
+- True remote ingestion backend
 
-This tool is provided for educational purposes and authorized security testing only.
+---
 
-Only scan systems and networks you own or have explicit permission to test.
+## Legal & Ethical Use
 
-📌 Project Status
+For educational purposes and authorized testing only. Only scan systems you own or have explicit written permission to test.
 
-🚧 Work in Progress — iterative improvements planned:
+---
 
-CLI interface
+## License
 
-UDP / SYN scanning variants
-
-Enhanced detection rules
-
-True remote ingestion backend
-
-📝 License
-
-MIT License
+MIT
