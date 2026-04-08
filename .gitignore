@@ -1,9 +1,3 @@
-# Create the file
-nano .gitignore
-```
-
-**Paste this in:**
-```
 # Python
 __pycache__/
 *.py[cod]
@@ -39,3 +33,4 @@ Thumbs.db
 # Config files with secrets (add later if needed)
 config.yaml
 .env
+agent_id
